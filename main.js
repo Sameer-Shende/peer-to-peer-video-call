@@ -26,7 +26,6 @@ const servers = {
     ]
 }
 
-
 let constraints = {
     video:{
         width:{min:640, ideal:1920, max:1920},
@@ -49,8 +48,8 @@ let init = async () => {
 
     localStream = await navigator.mediaDevices.getUserMedia(constraints)
     document.getElementById('user-1').srcObject = localStream
+    document.getElementById('user-1').play() // Ensure local video is playing
 }
- 
 
 let handleUserLeft = (MemberId) => {
     document.getElementById('user-2').style.display = 'none'
@@ -58,7 +57,6 @@ let handleUserLeft = (MemberId) => {
 }
 
 let handleMessageFromPeer = async (message, MemberId) => {
-
     message = JSON.parse(message.text)
 
     if(message.type === 'offer'){
@@ -74,8 +72,6 @@ let handleMessageFromPeer = async (message, MemberId) => {
             peerConnection.addIceCandidate(message.candidate)
         }
     }
-
-
 }
 
 let handleUserJoined = async (MemberId) => {
@@ -83,20 +79,20 @@ let handleUserJoined = async (MemberId) => {
     createOffer(MemberId)
 }
 
-
 let createPeerConnection = async (MemberId) => {
     peerConnection = new RTCPeerConnection(servers)
 
     remoteStream = new MediaStream()
     document.getElementById('user-2').srcObject = remoteStream
     document.getElementById('user-2').style.display = 'block'
+    document.getElementById('user-2').play() // Ensure remote video is playing
 
     document.getElementById('user-1').classList.add('smallFrame')
 
-
     if(!localStream){
-        localStream = await navigator.mediaDevices.getUserMedia({video:true, audio:false})
+        localStream = await navigator.mediaDevices.getUserMedia({video:true, audio:true})
         document.getElementById('user-1').srcObject = localStream
+        document.getElementById('user-1').play() // Ensure local video is playing
     }
 
     localStream.getTracks().forEach((track) => {
@@ -104,6 +100,7 @@ let createPeerConnection = async (MemberId) => {
     })
 
     peerConnection.ontrack = (event) => {
+        console.log('Remote track received:', event)
         event.streams[0].getTracks().forEach((track) => {
             remoteStream.addTrack(track)
         })
@@ -125,7 +122,6 @@ let createOffer = async (MemberId) => {
     client.sendMessageToPeer({text:JSON.stringify({'type':'offer', 'offer':offer})}, MemberId)
 }
 
-
 let createAnswer = async (MemberId, offer) => {
     await createPeerConnection(MemberId)
 
@@ -137,13 +133,11 @@ let createAnswer = async (MemberId, offer) => {
     client.sendMessageToPeer({text:JSON.stringify({'type':'answer', 'answer':answer})}, MemberId)
 }
 
-
 let addAnswer = async (answer) => {
     if(!peerConnection.currentRemoteDescription){
         peerConnection.setRemoteDescription(answer)
     }
 }
-
 
 let leaveChannel = async () => {
     await channel.leave()
@@ -151,29 +145,23 @@ let leaveChannel = async () => {
 }
 
 let toggleCamera = async () => {
-    let videoTrack = localStream.getTracks().find(track => track.kind === 'video')
+    let videoTrack = localStream.getVideoTracks()[0]
 
-    if(videoTrack.enabled){
-        videoTrack.enabled = false
-        document.getElementById('camera-btn').style.backgroundColor = 'rgb(255, 80, 80)'
-    }else{
-        videoTrack.enabled = true
-        document.getElementById('camera-btn').style.backgroundColor = 'rgb(179, 102, 249, .9)'
+    if(videoTrack){
+        videoTrack.enabled = !videoTrack.enabled
+        document.getElementById('camera-btn').style.backgroundColor = videoTrack.enabled ? 'rgb(179, 102, 249, .9)' : 'rgb(255, 80, 80)'
     }
 }
 
 let toggleMic = async () => {
-    let audioTrack = localStream.getTracks().find(track => track.kind === 'audio')
+    let audioTrack = localStream.getAudioTracks()[0]
 
-    if(audioTrack.enabled){
-        audioTrack.enabled = false
-        document.getElementById('mic-btn').style.backgroundColor = 'rgb(255, 80, 80)'
-    }else{
-        audioTrack.enabled = true
-        document.getElementById('mic-btn').style.backgroundColor = 'rgb(179, 102, 249, .9)'
+    if(audioTrack){
+        audioTrack.enabled = !audioTrack.enabled
+        document.getElementById('mic-btn').style.backgroundColor = audioTrack.enabled ? 'rgb(179, 102, 249, .9)' : 'rgb(255, 80, 80)'
     }
 }
-  
+
 window.addEventListener('beforeunload', leaveChannel)
 
 document.getElementById('camera-btn').addEventListener('click', toggleCamera)
