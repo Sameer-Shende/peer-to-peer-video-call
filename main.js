@@ -18,6 +18,8 @@ let localStream;
 let remoteStream;
 let peerConnection;
 
+let pendingICECandidates = []; // Store ICE candidates if remote description isn't set yet
+
 const servers = {
     iceServers:[
         {
@@ -48,7 +50,7 @@ let init = async () => {
 
     localStream = await navigator.mediaDevices.getUserMedia(constraints)
     document.getElementById('user-1').srcObject = localStream
-    document.getElementById('user-1').play() // Ensure local video is playing
+    document.getElementById('user-1').play()
 }
 
 let handleUserLeft = (MemberId) => {
@@ -60,23 +62,25 @@ let handleMessageFromPeer = async (message, MemberId) => {
     message = JSON.parse(message.text)
 
     if(message.type === 'offer'){
-        createAnswer(MemberId, message.offer)
+        await createAnswer(MemberId, message.offer)
     }
 
     if(message.type === 'answer'){
-        addAnswer(message.answer)
+        await addAnswer(message.answer)
     }
 
     if(message.type === 'candidate'){
-        if(peerConnection){
-            peerConnection.addIceCandidate(message.candidate)
+        if(peerConnection && peerConnection.remoteDescription) {
+            await peerConnection.addIceCandidate(message.candidate)
+        } else {
+            pendingICECandidates.push(message.candidate) // Store candidate if remote description isn't set
         }
     }
 }
 
 let handleUserJoined = async (MemberId) => {
     console.log('A new user joined the channel:', MemberId)
-    createOffer(MemberId)
+    await createOffer(MemberId)
 }
 
 let createPeerConnection = async (MemberId) => {
@@ -85,14 +89,14 @@ let createPeerConnection = async (MemberId) => {
     remoteStream = new MediaStream()
     document.getElementById('user-2').srcObject = remoteStream
     document.getElementById('user-2').style.display = 'block'
-    document.getElementById('user-2').play() // Ensure remote video is playing
+    document.getElementById('user-2').play()
 
     document.getElementById('user-1').classList.add('smallFrame')
 
     if(!localStream){
         localStream = await navigator.mediaDevices.getUserMedia({video:true, audio:true})
         document.getElementById('user-1').srcObject = localStream
-        document.getElementById('user-1').play() // Ensure local video is playing
+        document.getElementById('user-1').play()
     }
 
     localStream.getTracks().forEach((track) => {
@@ -108,7 +112,7 @@ let createPeerConnection = async (MemberId) => {
 
     peerConnection.onicecandidate = async (event) => {
         if(event.candidate){
-            client.sendMessageToPeer({text:JSON.stringify({'type':'candidate', 'candidate':event.candidate})}, MemberId)
+            await client.sendMessageToPeer({text:JSON.stringify({'type':'candidate', 'candidate':event.candidate})}, MemberId)
         }
     }
 }
@@ -119,7 +123,7 @@ let createOffer = async (MemberId) => {
     let offer = await peerConnection.createOffer()
     await peerConnection.setLocalDescription(offer)
 
-    client.sendMessageToPeer({text:JSON.stringify({'type':'offer', 'offer':offer})}, MemberId)
+    await client.sendMessageToPeer({text:JSON.stringify({'type':'offer', 'offer':offer})}, MemberId)
 }
 
 let createAnswer = async (MemberId, offer) => {
@@ -130,12 +134,28 @@ let createAnswer = async (MemberId, offer) => {
     let answer = await peerConnection.createAnswer()
     await peerConnection.setLocalDescription(answer)
 
-    client.sendMessageToPeer({text:JSON.stringify({'type':'answer', 'answer':answer})}, MemberId)
+    // Apply any pending ICE candidates
+    if (pendingICECandidates.length > 0) {
+        for (let candidate of pendingICECandidates) {
+            await peerConnection.addIceCandidate(candidate)
+        }
+        pendingICECandidates = []
+    }
+
+    await client.sendMessageToPeer({text:JSON.stringify({'type':'answer', 'answer':answer})}, MemberId)
 }
 
 let addAnswer = async (answer) => {
     if(!peerConnection.currentRemoteDescription){
-        peerConnection.setRemoteDescription(answer)
+        await peerConnection.setRemoteDescription(answer)
+
+        // Apply any pending ICE candidates
+        if (pendingICECandidates.length > 0) {
+            for (let candidate of pendingICECandidates) {
+                await peerConnection.addIceCandidate(candidate)
+            }
+            pendingICECandidates = []
+        }
     }
 }
 
